@@ -4,12 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ggez = "0.9.3"
-
-piston2d-sprite = "0.68.0"
 piston = "0.54.0"
+piston2d-sprite = "0.68.0"
 piston2d-graphics = "0.44.0"
-pistoncore-glutin_window = "0.72.0"
 piston2d-opengl_graphics = "0.83.0"
-piston_window = "0.130.0"
+pistoncore-glutin_window = "0.72.0"
 find_folder = "0.3.0"
