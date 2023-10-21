@@ -3,7 +3,9 @@ extern crate graphics;
 extern crate opengl_graphics;
 extern crate piston;
 
+use ggez::winit::window;
 use glutin_window::GlutinWindow as Window;
+use graphics::ImageSize;
 use opengl_graphics::{GlGraphics, OpenGL};
 use piston::event_loop::{EventSettings, Events};
 use piston::input::{
@@ -98,17 +100,25 @@ struct Disc {
     height: f64,
     pos_x: f64,
     pos_y: f64,
+    texture: opengl_graphics::Texture,
 }
 
 impl Disc {
     fn render(&self, gl: &mut GlGraphics, args: &RenderArgs) {
         // let rect = graphics::rectangle::square(self.pos_x as f64, self.pos_y as f64, 20.0);
-        let rect = [self.pos_x, self.pos_y, self.width, self.height];
+        // let rect = [self.pos_x, self.pos_y, self.width, self.height];
+        let img = graphics::Image::new().rect([self.pos_x, self.pos_y, self.width, self.height]);
 
         gl.draw(args.viewport(), |c, gl| {
-            let transform = c.transform;
+            // let transform = c.transform;
 
-            graphics::rectangle(COLOR_DISC, rect, transform, gl);
+            // graphics::rectangle(COLOR_DISC, rect, transform, gl);
+            img.draw(
+                &self.texture,
+                &graphics::DrawState::default(),
+                c.transform,
+                gl,
+            );
         })
     }
 
@@ -149,7 +159,7 @@ pub struct App {
 
 impl App {
     fn render(&mut self, args: &RenderArgs) {
-        self.gl.draw(args.viewport(), |_c, gl| {
+        self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
             graphics::clear(COLOR_BACKGROUND, gl);
 
@@ -230,6 +240,14 @@ fn main() {
         .build()
         .unwrap();
 
+    // Load image
+
+    let texture = opengl_graphics::Texture::from_path(
+        std::path::Path::new("./assets/block1.png"),
+        &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
+    )
+    .expect("Could not load brick.");
+
     // Create a new game and run it.
     let mut app = App {
         gl: GlGraphics::new(opengl),
@@ -238,6 +256,7 @@ fn main() {
             height: DISC_HEIGHT,
             pos_x: ROD_A_CENTER - DISC_WIDTH / 2.0,
             pos_y: ROD_BASE - DISC_HEIGHT,
+            texture,
         },
         rod_a: Rod {
             width: ROD_WIDTH,
