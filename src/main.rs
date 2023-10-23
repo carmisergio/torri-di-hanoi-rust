@@ -17,14 +17,15 @@ static WINDOW_TITLE: &str = "Torri di Hanoi";
 const WINDOW_WIDTH: u32 = 1280;
 const WINDOW_HEIGHT: u32 = 720;
 const DISC_WIDTH_MIN: f64 = 100.0;
-const DISC_WIDTH_MAX: f64 = 400.0;
+const DISC_WIDTH_MAX: f64 = 350.0;
 const DISC_HEIGHT: f64 = 60.0;
 const ROD_WIDTH: f64 = 20.0;
 const ROD_HEIGHT: f64 = 500.0;
 const ROD_BASE: f64 = WINDOW_HEIGHT as f64 - 100.0;
 const ROD_TOP: f64 = ROD_BASE - ROD_HEIGHT;
-const ROD_A_CENTER: f64 = 350.0 + ROD_WIDTH / 2.0;
-const ROD_B_CENTER: f64 = WINDOW_WIDTH as f64 - 350.0 - ROD_WIDTH / 2.0;
+const N_DISCS: u32 = 3;
+const N_RODS: u32 = 3;
+
 // const RECT_WIDTH_HALF: f32 = RECT_WIDTH / 2;
 // const RECT_HEIGHT_HALF: f32 = RECT_HEIGHT / 2;
 // const PERNO_WIDTH: f32 = 20.0;
@@ -68,7 +69,10 @@ struct Rod {
     height: f64,
     pos_x: f64,
     pos_y: f64,
-    highlited: bool,
+    center: f64,
+    highlighted: bool,
+    dropbox_start: f64,
+    dropbox_end: f64,
 }
 
 impl Rod {
@@ -80,7 +84,7 @@ impl Rod {
             let transform = c.transform;
 
             graphics::rectangle(
-                if self.highlited {
+                if self.highlighted {
                     COLOR_ROD_HIGHLIGHT
                 } else {
                     COLOR_ROD
@@ -91,12 +95,10 @@ impl Rod {
             );
         })
     }
-}
 
-#[derive(Clone, Copy)]
-enum StackRod {
-    RodA,
-    RodB,
+    fn pos_in_dropbox(&self, x: f64, y: f64) -> bool {
+        x >= self.dropbox_start && x <= self.dropbox_end
+    }
 }
 
 struct DiscTexture {
@@ -203,41 +205,48 @@ fn calc_stacked_y(stack: u32) -> f64 {
     ROD_BASE - DISC_HEIGHT * (stack + 1) as f64
 }
 
+fn calc_rod_value(rod: &Vec<Disc>) -> u32 {
+    if rod.len() < 1 {
+        return u32::MAX;
+    } else {
+        return rod.last().unwrap().value;
+    }
+}
+
 pub struct App {
     gl: GlGraphics, // OpenGL drawing backend.
 
     // Elements
-    discs_a: Vec<Disc>,
-    discs_b: Vec<Disc>,
-    rod_a: Rod,
-    rod_b: Rod,
+    discs: Vec<Vec<Disc>>,
+    rods: Vec<Rod>,
 
     // Mouse position
     mouse_pos_x: f64,
     mouse_pos_y: f64,
-    //
+
     // Movement variables
     moving_disc: Option<Disc>,
     mov_ofst_x: f64,
     mov_ofst_y: f64,
+    start_rod: usize,
 }
 
 impl App {
     fn render(&mut self, args: &RenderArgs) {
-        self.gl.draw(args.viewport(), |c, gl| {
+        self.gl.draw(args.viewport(), |_c, gl| {
             // Clear the screen.
             graphics::clear(COLOR_BACKGROUND, gl);
 
-            // Render
-            self.rod_a.render(gl, args);
-            self.rod_b.render(gl, args);
+            // Render all rods
+            for rod in self.rods.iter() {
+                rod.render(gl, args);
+            }
 
             // Render all discs
-            for (i, disc) in self.discs_a.iter().enumerate() {
-                disc.render(gl, args, ROD_A_CENTER, calc_stacked_y(i as u32));
-            }
-            for (i, disc) in self.discs_b.iter().enumerate() {
-                disc.render(gl, args, ROD_B_CENTER, calc_stacked_y(i as u32));
+            for (i_rod, rod) in self.discs.iter().enumerate() {
+                for (i, disc) in rod.iter().enumerate() {
+                    disc.render(gl, args, self.rods[i_rod].center, calc_stacked_y(i as u32));
+                }
             }
 
             // Render moving disc
@@ -255,7 +264,7 @@ impl App {
         });
     }
 
-    fn update(&mut self, args: &UpdateArgs) {}
+    fn update(&mut self, _args: &UpdateArgs) {}
 
     fn mouse_moved(&mut self, pos: &[f64; 2]) {
         // Save mouse position
@@ -264,107 +273,61 @@ impl App {
 
         // Higlight rods
         if !matches!(self.moving_disc, None) {
-            if self.mouse_pos_x <= WINDOW_WIDTH as f64 / 2.0 {
-                self.rod_a.highlited = true;
-                self.rod_b.highlited = false;
-            } else {
-                self.rod_a.highlited = false;
-                self.rod_b.highlited = true;
+            for (i_rod, rod) in self.rods.iter_mut().enumerate() {
+                rod.highlighted = false;
+                if rod.pos_in_dropbox(self.mouse_pos_x, self.mouse_pos_y) {
+                    if calc_rod_value(&self.discs[i_rod])
+                        >= self.moving_disc.as_mut().unwrap().value
+                    {
+                        rod.highlighted = true;
+                    }
+                }
             }
         } else {
             // Highlight discs
+            for (i_rod, rod) in self.discs.iter_mut().enumerate() {
+                if !rod.is_empty() {
+                    let last_disc_i = rod.len() - 1;
 
-            // Rod A
-            if !self.discs_a.is_empty() {
-                let last_disc_i = self.discs_a.len() - 1;
-
-                self.discs_a[last_disc_i].highlighted = self.discs_a[last_disc_i].pos_in(
-                    self.mouse_pos_x,
-                    self.mouse_pos_y,
-                    ROD_A_CENTER,
-                    calc_stacked_y(last_disc_i as u32),
-                )
-            }
-
-            // Rod B
-            if !self.discs_b.is_empty() {
-                let last_disc_i = self.discs_b.len() - 1;
-
-                self.discs_b[last_disc_i].highlighted = self.discs_b[last_disc_i].pos_in(
-                    self.mouse_pos_x,
-                    self.mouse_pos_y,
-                    ROD_B_CENTER,
-                    calc_stacked_y(last_disc_i as u32),
-                )
+                    rod[last_disc_i].highlighted = rod[last_disc_i].pos_in(
+                        self.mouse_pos_x,
+                        self.mouse_pos_y,
+                        self.rods[i_rod].center,
+                        calc_stacked_y(last_disc_i as u32),
+                    )
+                }
             }
         }
-
-        // Higlight discs
-
-        // // Mov disc
-        // if self.moving_disc {
-        //     self.disc
-        //         .set_pos(pos[0] + self.mov_ofst_x, pos[1] + self.mov_ofst_y);
-
-        //     if self.disc.pos_x <= WINDOW_WIDTH as f64 / 2.0 - DISC_WIDTH / 2.0 {
-        //         self.rod_a.highlited = true;
-        //         self.rod_b.highlited = false;
-        //     } else {
-        //         self.rod_a.highlited = false;
-        //         self.rod_b.highlited = true;
-        //     }
-        // }
     }
 
     fn mouse_button_pressed(&mut self, button: &MouseButton) {
         if *button == MouseButton::Left {
             // Check if mouse has been clicked inside disc
 
-            // For rod A
-            if !self.discs_a.is_empty() {
-                let last_disc = self.discs_a.last().unwrap();
-                let last_disc_i = self.discs_a.len() - 1;
+            for (i_rod, rod) in self.discs.iter_mut().enumerate() {
+                if !rod.is_empty() {
+                    let last_disc = rod.last().unwrap();
+                    let last_disc_i = rod.len() - 1;
 
-                if last_disc.pos_in(
-                    self.mouse_pos_x,
-                    self.mouse_pos_y,
-                    ROD_A_CENTER,
-                    calc_stacked_y(last_disc_i as u32),
-                ) {
-                    (self.mov_ofst_x, self.mov_ofst_y) = last_disc.calc_movement_offset(
+                    // If mouse was clicked on a disc
+                    if last_disc.pos_in(
                         self.mouse_pos_x,
                         self.mouse_pos_y,
-                        ROD_A_CENTER,
+                        self.rods[i_rod].center,
                         calc_stacked_y(last_disc_i as u32),
-                    );
+                    ) {
+                        (self.mov_ofst_x, self.mov_ofst_y) = last_disc.calc_movement_offset(
+                            self.mouse_pos_x,
+                            self.mouse_pos_y,
+                            self.rods[i_rod].center,
+                            calc_stacked_y(last_disc_i as u32),
+                        );
 
-                    // Remove disc and save to current disc
-                    self.discs_a[last_disc_i].highlighted = false;
-                    self.moving_disc = Some(self.discs_a.remove(last_disc_i));
-                }
-            }
-
-            // For rod B
-            if !self.discs_b.is_empty() {
-                let last_disc = self.discs_b.last().unwrap();
-                let last_disc_i = self.discs_b.len() - 1;
-
-                if last_disc.pos_in(
-                    self.mouse_pos_x,
-                    self.mouse_pos_y,
-                    ROD_B_CENTER,
-                    calc_stacked_y(last_disc_i as u32),
-                ) {
-                    (self.mov_ofst_x, self.mov_ofst_y) = last_disc.calc_movement_offset(
-                        self.mouse_pos_x,
-                        self.mouse_pos_y,
-                        ROD_B_CENTER,
-                        calc_stacked_y(last_disc_i as u32),
-                    );
-
-                    // Remove disc and save to current disc
-                    self.discs_b[last_disc_i].highlighted = false;
-                    self.moving_disc = Some(self.discs_b.remove(last_disc_i));
+                        // Remove disc and save to current disc
+                        rod[last_disc_i].highlighted = false;
+                        self.moving_disc = Some(rod.remove(last_disc_i));
+                        self.start_rod = i_rod as usize;
+                    }
                 }
             }
         }
@@ -374,51 +337,77 @@ impl App {
             if !matches!(self.moving_disc, None) {
                 let currently_moving: Disc = std::mem::take(&mut self.moving_disc).unwrap();
 
-                if self.mouse_pos_x <= WINDOW_WIDTH as f64 / 2.0 {
-                    self.discs_a.push(currently_moving);
+                let mut drop: Option<usize> = None;
+
+                for (i_rod, rod) in self.rods.iter_mut().enumerate() {
+                    if rod.pos_in_dropbox(self.mouse_pos_x, self.mouse_pos_y)
+                        && calc_rod_value(&self.discs[i_rod]) >= currently_moving.value
+                    {
+                        drop = Some(i_rod);
+                        break;
+                    }
+                }
+
+                if matches!(drop, None) {
+                    self.discs[self.start_rod].push(currently_moving);
                 } else {
-                    self.discs_b.push(currently_moving);
+                    self.discs[drop.unwrap()].push(currently_moving);
                 }
 
                 self.moving_disc = None;
 
-                self.rod_a.highlited = false;
-                self.rod_b.highlited = false;
+                for rod in self.rods.iter_mut() {
+                    rod.highlighted = false;
+                }
             }
-            // if self.moving_disc {
-            //     self.moving_disc = false;
-
-            //     self.rod_a.highlited = false;
-            //     self.rod_b.highlited = false;
-
-            //     if self.disc.pos_x <= WINDOW_WIDTH as f64 / 2.0 - DISC_WIDTH / 2.0 {
-            //         self.disc
-            //             .set_pos(ROD_A_CENTER - DISC_WIDTH / 2.0, ROD_BASE - DISC_HEIGHT);
-            //     } else {
-            //         self.disc
-            //             .set_pos(ROD_B_CENTER - DISC_WIDTH / 2.0, ROD_BASE - DISC_HEIGHT);
-            //     }
-            // }
         }
     }
 }
 
-fn init_discs(n_discs: u32) -> Vec<Disc> {
-    let mut discs: Vec<Disc> = vec![];
+fn init_discs(n_discs: u32, n_rods: u32) -> Vec<Vec<Disc>> {
+    let mut discs: Vec<Vec<Disc>> = vec![];
+    let mut internal: Vec<Disc> = vec![];
 
     let width_step = (DISC_WIDTH_MAX - DISC_WIDTH_MIN) / (n_discs - 1) as f64;
 
+    // Add discs to first rod
     for n in (0..n_discs).rev() {
-        println!("{n}");
-        discs.push(Disc {
+        internal.push(Disc {
             width: DISC_WIDTH_MIN + width_step * n as f64,
             value: n,
             highlighted: false,
             texture: load_disc_texture(),
         })
     }
+    discs.push(internal);
+
+    // Fill remaining rods
+    for _n in 1..n_rods {
+        discs.push(vec![]);
+    }
 
     discs
+}
+
+fn init_rods(n_rods: u32) -> Vec<Rod> {
+    let mut rods: Vec<Rod> = vec![];
+
+    let screen_divs = WINDOW_WIDTH as f64 / n_rods as f64;
+
+    for n in 0..n_rods {
+        rods.push(Rod {
+            width: ROD_WIDTH,
+            height: ROD_HEIGHT,
+            pos_x: screen_divs / 2.0 + screen_divs * n as f64 - ROD_WIDTH / 2.0,
+            pos_y: ROD_TOP,
+            center: screen_divs / 2.0 + screen_divs * n as f64,
+            highlighted: false,
+            dropbox_start: screen_divs * n as f64,
+            dropbox_end: screen_divs * (n + 1) as f64,
+        })
+    }
+
+    rods
 }
 
 fn load_disc_texture() -> DiscTexture {
@@ -476,32 +465,20 @@ fn main() {
         .unwrap();
 
     // Initialize discs
-    let discs = init_discs(5);
+    let discs = init_discs(N_DISCS, N_RODS);
+    let rods = init_rods(N_RODS);
 
     // Create a new game and run it.
     let mut app = App {
         gl: GlGraphics::new(opengl),
-        discs_a: discs,
-        discs_b: vec![],
-        rod_a: Rod {
-            width: ROD_WIDTH,
-            height: ROD_HEIGHT,
-            pos_x: ROD_A_CENTER - ROD_WIDTH / 2.0,
-            pos_y: ROD_TOP,
-            highlited: false,
-        },
-        rod_b: Rod {
-            width: ROD_WIDTH,
-            height: ROD_HEIGHT,
-            pos_x: ROD_B_CENTER - ROD_WIDTH / 2.0,
-            pos_y: ROD_TOP,
-            highlited: false,
-        },
+        discs,
+        rods,
         moving_disc: None,
         mov_ofst_x: 0.0,
         mov_ofst_y: 0.0,
         mouse_pos_x: 0.0,
         mouse_pos_y: 0.0,
+        start_rod: 0,
     };
 
     let mut events = Events::new(EventSettings::new());
