@@ -2,6 +2,7 @@ extern crate glutin_window;
 extern crate graphics;
 extern crate opengl_graphics;
 extern crate piston;
+mod textures;
 
 use glutin_window::GlutinWindow as Window;
 use opengl_graphics::{GlGraphics, OpenGL};
@@ -11,6 +12,8 @@ use piston::input::{
     UpdateArgs, UpdateEvent,
 };
 use piston::window::WindowSettings;
+
+use textures::{compute_disc_color, load_disc_texture_color, load_rod_texture, DiscTexture};
 
 // Constants
 static WINDOW_TITLE: &str = "Torri di Hanoi";
@@ -23,7 +26,7 @@ const ROD_WIDTH: f64 = 20.0;
 const ROD_HEIGHT: f64 = 500.0;
 const ROD_BASE: f64 = WINDOW_HEIGHT as f64 - 100.0;
 const ROD_TOP: f64 = ROD_BASE - ROD_HEIGHT;
-const N_DISCS: u32 = 3;
+const N_DISCS: u32 = 6;
 const N_RODS: u32 = 3;
 
 // const RECT_WIDTH_HALF: f32 = RECT_WIDTH / 2;
@@ -73,41 +76,40 @@ struct Rod {
     highlighted: bool,
     dropbox_start: f64,
     dropbox_end: f64,
+    texture: opengl_graphics::Texture,
 }
 
 impl Rod {
-    fn render(&self, gl: &mut GlGraphics, args: &RenderArgs) {
+    fn render(&self, c: graphics::Context, gl: &mut opengl_graphics::GlGraphics) {
         // let rect = graphics::rectangle::square(self.pos_x as f64, self.pos_y as f64, 20.0);
         let rect = [self.pos_x, self.pos_y, self.width, self.height];
 
-        gl.draw(args.viewport(), |c, gl| {
-            let transform = c.transform;
+        let image = graphics::Image::new().rect([self.pos_x, self.pos_y, self.width, self.height]);
 
-            graphics::rectangle(
-                if self.highlighted {
-                    COLOR_ROD_HIGHLIGHT
-                } else {
-                    COLOR_ROD
-                },
-                rect,
-                transform,
-                gl,
-            );
-        })
+        let transform = c.transform;
+
+        image.draw(
+            &self.texture,
+            &graphics::DrawState::default(),
+            c.transform,
+            gl,
+        );
+
+        // graphics::rectangle(
+        //     if self.highlighted {
+        //         COLOR_ROD_HIGHLIGHT
+        //     } else {
+        //         COLOR_ROD
+        //     },
+        //     rect,
+        //     transform,
+        //     gl,
+        // );
     }
 
-    fn pos_in_dropbox(&self, x: f64, y: f64) -> bool {
+    fn pos_in_dropbox(&self, x: f64, _y: f64) -> bool {
         x >= self.dropbox_start && x <= self.dropbox_end
     }
-}
-
-struct DiscTexture {
-    left: opengl_graphics::Texture,
-    middle: opengl_graphics::Texture,
-    right: opengl_graphics::Texture,
-    left_highlight: opengl_graphics::Texture,
-    middle_highlight: opengl_graphics::Texture,
-    right_highlight: opengl_graphics::Texture,
 }
 
 struct Disc {
@@ -233,13 +235,13 @@ pub struct App {
 
 impl App {
     fn render(&mut self, args: &RenderArgs) {
-        self.gl.draw(args.viewport(), |_c, gl| {
+        self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
             graphics::clear(COLOR_BACKGROUND, gl);
 
             // Render all rods
             for rod in self.rods.iter() {
-                rod.render(gl, args);
+                rod.render(c, gl);
             }
 
             // Render all discs
@@ -376,7 +378,7 @@ fn init_discs(n_discs: u32, n_rods: u32) -> Vec<Vec<Disc>> {
             width: DISC_WIDTH_MIN + width_step * n as f64,
             value: n,
             highlighted: false,
-            texture: load_disc_texture(),
+            texture: load_disc_texture_color(compute_disc_color(n, n_discs)),
         })
     }
     discs.push(internal);
@@ -404,52 +406,11 @@ fn init_rods(n_rods: u32) -> Vec<Rod> {
             highlighted: false,
             dropbox_start: screen_divs * n as f64,
             dropbox_end: screen_divs * (n + 1) as f64,
+            texture: load_rod_texture(),
         })
     }
 
     rods
-}
-
-fn load_disc_texture() -> DiscTexture {
-    let left = opengl_graphics::Texture::from_path(
-        std::path::Path::new("./assets/block2_left.png"),
-        &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
-    )
-    .unwrap();
-    let middle = opengl_graphics::Texture::from_path(
-        std::path::Path::new("./assets/block2_middle.png"),
-        &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
-    )
-    .unwrap();
-    let right = opengl_graphics::Texture::from_path(
-        std::path::Path::new("./assets/block2_right.png"),
-        &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
-    )
-    .unwrap();
-    let left_highlight = opengl_graphics::Texture::from_path(
-        std::path::Path::new("./assets/block2_highlight_left.png"),
-        &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
-    )
-    .unwrap();
-    let middle_highlight = opengl_graphics::Texture::from_path(
-        std::path::Path::new("./assets/block2_highlight_middle.png"),
-        &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
-    )
-    .unwrap();
-    let right_highlight = opengl_graphics::Texture::from_path(
-        std::path::Path::new("./assets/block2_highlight_right.png"),
-        &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
-    )
-    .unwrap();
-
-    DiscTexture {
-        left,
-        middle,
-        right,
-        left_highlight,
-        middle_highlight,
-        right_highlight,
-    }
 }
 
 fn main() {
