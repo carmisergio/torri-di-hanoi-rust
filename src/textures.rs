@@ -3,32 +3,14 @@ extern crate image;
 use image::*;
 use std::path::*;
 
+// Types
 type RGBColor = [u8; 3];
 type HSVColor = [u8; 3];
-
-// def hsv_to_rgb( h:scalar, s:scalar, v:scalar, a:scalar ) -> tuple:
-//     if s:
-//         if h == 1.0: h = 0.0
-//         i = int(h*6.0); f = h*6.0 - i
-
-//         w = v * (1.0 - s)
-//         q = v * (1.0 - s * f)
-//         t = v * (1.0 - s * (1.0 - f))
-
-//         if i==0: return (v, t, w, a)
-//         if i==1: return (q, v, w, a)
-//         if i==2: return (w, v, t, a)
-//         if i==3: return (w, q, v, a)
-//         if i==4: return (t, w, v, a)
-//         if i==5: return (v, w, q, a)
-//     else: return (v, v, v, a)
 
 fn hsv_to_rgb(hsv: HSVColor) -> RGBColor {
     let mut h = hsv[0] as f64 / 255.0;
     let s = hsv[1] as f64 / 255.0;
     let v = hsv[2] as f64 / 255.0;
-
-    println!("{h}, {s}, {v}");
 
     let mut r: f64;
     let mut g: f64;
@@ -76,12 +58,6 @@ pub struct DiscTexture {
     pub right_highlight: opengl_graphics::Texture,
 }
 
-// pub struct DiscTextureImages {
-//     pub left: RgbaImage,
-//     pub middle: RgbaImage,
-//     pub right: RgbaImage,
-// }
-
 fn load_image(path: PathBuf) -> RgbaImage {
     let img = image::open(path).expect("File not found");
     img.to_rgba8()
@@ -127,30 +103,6 @@ fn get_file_paths(dir: &Path, files: Vec<&str>) -> Vec<PathBuf> {
     file_paths
 }
 
-// pub fn load_disc_texture_images() -> DiscTextureImages {
-//     // Resolve file paths
-//     let dir = Path::new("./assets");
-//     let files: Vec<&str> = vec![
-//         "block_grayscale_left.png",
-//         "block_grayscale_middle.png",
-//         "block_grayscale_right.png",
-//     ];
-//     let file_paths = get_file_paths(&dir, files);
-
-//     // Load images
-//     let mut images = load_images(file_paths);
-
-//     let left = images.pop().unwrap();
-//     let middle = images.pop().unwrap();
-//     let right = images.pop().unwrap();
-
-//     DiscTextureImages {
-//         left: left,
-//         middle: middle,
-//         right: right,
-//     }
-// }
-
 pub fn load_disc_texture_color(color: HSVColor) -> DiscTexture {
     // Resolve file paths
     let dir = Path::new("./assets");
@@ -158,17 +110,20 @@ pub fn load_disc_texture_color(color: HSVColor) -> DiscTexture {
         "block_grayscale_left.png",
         "block_grayscale_middle.png",
         "block_grayscale_right.png",
+        "block_grayscale_highlight_left.png",
+        "block_grayscale_highlight_middle.png",
+        "block_grayscale_highlight_right.png",
     ];
     let file_paths = get_file_paths(&dir, files);
 
     // Load images
     let images = load_images(file_paths);
 
-    // Create textures for higlight
-    let color_highlight: RGBColor = [255, 255, 100];
+    // // Create textures for higlight
+    // let color_highlight: RGBColor = [255, 255, 100];
 
     let color = hsv_to_rgb(color);
-    let images_highlight = apply_color_all(images.clone(), color_highlight);
+    // let images_highlight = apply_color_all(images.clone(), color_highlight);
     let images = apply_color_all(images, color);
 
     let left = opengl_graphics::Texture::from_image(
@@ -184,15 +139,15 @@ pub fn load_disc_texture_color(color: HSVColor) -> DiscTexture {
         &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
     );
     let left_highlight = opengl_graphics::Texture::from_image(
-        &images_highlight[0],
+        &images[3],
         &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
     );
     let middle_highlight = opengl_graphics::Texture::from_image(
-        &images_highlight[1],
+        &images[4],
         &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
     );
     let right_highlight = opengl_graphics::Texture::from_image(
-        &images_highlight[2],
+        &images[5],
         &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
     );
 
@@ -256,11 +211,23 @@ pub fn compute_disc_color(disc: u32, n_discs: u32) -> RGBColor {
     hsv
 }
 
-pub fn load_rod_texture() -> opengl_graphics::Texture {
-    let image = load_image(PathBuf::from("./assets/rod1.png"));
+pub struct RodTexture {
+    pub normal: opengl_graphics::Texture,
+    pub highlight: opengl_graphics::Texture,
+}
 
-    opengl_graphics::Texture::from_image(
-        &image,
+pub fn load_rod_texture() -> RodTexture {
+    let image_normal = load_image(PathBuf::from("./assets/rod2.png"));
+    let image_higlight = load_image(PathBuf::from("./assets/rod2_highlight.png"));
+
+    let normal = opengl_graphics::Texture::from_image(
+        &image_normal,
         &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
-    )
+    );
+    let highlight = opengl_graphics::Texture::from_image(
+        &image_higlight,
+        &opengl_graphics::TextureSettings::new().mag(opengl_graphics::Filter::Nearest),
+    );
+
+    RodTexture { normal, highlight }
 }

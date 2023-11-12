@@ -12,8 +12,11 @@ use piston::input::{
     UpdateArgs, UpdateEvent,
 };
 use piston::window::WindowSettings;
+// use piston::Window;
 
-use textures::{compute_disc_color, load_disc_texture_color, load_rod_texture, DiscTexture};
+use textures::{
+    compute_disc_color, load_disc_texture_color, load_rod_texture, DiscTexture, RodTexture,
+};
 
 // Constants
 static WINDOW_TITLE: &str = "Torri di Hanoi";
@@ -26,20 +29,11 @@ const ROD_WIDTH: f64 = 20.0;
 const ROD_HEIGHT: f64 = 500.0;
 const ROD_BASE: f64 = WINDOW_HEIGHT as f64 - 100.0;
 const ROD_TOP: f64 = ROD_BASE - ROD_HEIGHT;
-const N_DISCS: u32 = 6;
+const N_DISCS: u32 = 4;
 const N_RODS: u32 = 3;
 
-// const RECT_WIDTH_HALF: f32 = RECT_WIDTH / 2;
-// const RECT_HEIGHT_HALF: f32 = RECT_HEIGHT / 2;
-// const PERNO_WIDTH: f32 = 20.0;
-// const PERNO_HEIGHT: f32 = 500.0;
-// const PERNO_WIDTH_HALF: f32 = PERNO_WIDTH / 2.0;
-// const PERNO_HEIGHT_HALF: f32 = PERNO_HEIGHT / 2.0;
-// const PERNO_A_X: f32 = WINDOW_WIDTH / 4.0;
-// const PERNO_B_X: f32 = WINDOW_WIDTH - WINDOW_WIDTH / 4.0;
-const COLOR_BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
-const COLOR_ROD: [f32; 4] = [0.27, 0.18, 0.05, 1.0];
-const COLOR_ROD_HIGHLIGHT: [f32; 4] = [0.94, 0.93, 0.68, 1.0];
+const COLOR_BACKGROUND: [f32; 4] = [0.8, 0.1, 0.1, 1.0];
+const COLOR_PLAY_AREA_BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
 
 fn clamp_rect_position(
     x: f64,
@@ -76,39 +70,37 @@ struct Rod {
     highlighted: bool,
     dropbox_start: f64,
     dropbox_end: f64,
-    texture: opengl_graphics::Texture,
+    texture: RodTexture,
 }
 
 impl Rod {
-    fn render(&self, c: graphics::Context, gl: &mut opengl_graphics::GlGraphics) {
-        // let rect = graphics::rectangle::square(self.pos_x as f64, self.pos_y as f64, 20.0);
-        let rect = [self.pos_x, self.pos_y, self.width, self.height];
-
-        let image = graphics::Image::new().rect([self.pos_x, self.pos_y, self.width, self.height]);
-
-        let transform = c.transform;
+    fn render(
+        &self,
+        c: graphics::Context,
+        gl: &mut opengl_graphics::GlGraphics,
+        play_area_render_info: &PlayAreaRenderInfo,
+    ) {
+        let image = graphics::Image::new().rect([
+            self.pos_x + play_area_render_info.x,
+            self.pos_y + play_area_render_info.y,
+            self.width,
+            self.height,
+        ]);
 
         image.draw(
-            &self.texture,
+            if self.highlighted {
+                &self.texture.highlight
+            } else {
+                &self.texture.normal
+            },
             &graphics::DrawState::default(),
             c.transform,
             gl,
         );
-
-        // graphics::rectangle(
-        //     if self.highlighted {
-        //         COLOR_ROD_HIGHLIGHT
-        //     } else {
-        //         COLOR_ROD
-        //     },
-        //     rect,
-        //     transform,
-        //     gl,
-        // );
     }
 
-    fn pos_in_dropbox(&self, x: f64, _y: f64) -> bool {
-        x >= self.dropbox_start && x <= self.dropbox_end
+    fn pos_in_dropbox(&self, x: f64, _y: f64, pari: &PlayAreaRenderInfo) -> bool {
+        x >= self.dropbox_start + pari.x && x <= self.dropbox_end + pari.y
     }
 }
 
@@ -137,10 +129,6 @@ impl Disc {
             graphics::Image::new().rect([x + self.width - pixel_size, y, pixel_size, DISC_HEIGHT]);
 
         gl.draw(args.viewport(), |c, gl| {
-            // let transform = c.transform;
-
-            // graphics::rectangle(COLOR_DISC, rect, transform, gl);
-
             img_left.draw(
                 if self.highlighted {
                     &self.texture.left_highlight
@@ -182,24 +170,31 @@ impl Disc {
         (x >= pos_x && x <= pos_x + self.width) && (y >= pos_y && y <= pos_y + DISC_HEIGHT)
     }
 
-    fn clamped_pos(&self, x: f64, y: f64) -> (f64, f64) {
+    fn clamped_pos(&self, x: f64, y: f64, pari: &PlayAreaRenderInfo) -> (f64, f64) {
         // TODO remove unnecessary calculation from centre to absolute to centre again
         let (clamped_x, clamped_y) = clamp_rect_position(
             x - self.width / 2.0,
             y,
             self.width,
             DISC_HEIGHT,
-            WINDOW_WIDTH as f64,
-            WINDOW_HEIGHT as f64,
+            pari.width,
+            pari.height,
         );
-        (clamped_x + self.width / 2.0, clamped_y)
+        (clamped_x + self.width / 2.0 + pari.x, clamped_y + pari.y)
     }
 
-    fn calc_movement_offset(&self, x: f64, y: f64, pos_center_x: f64, pos_y: f64) -> (f64, f64) {
+    fn calc_movement_offset(
+        &self,
+        x: f64,
+        y: f64,
+        pos_center_x: f64,
+        pos_y: f64,
+        pari: &PlayAreaRenderInfo,
+    ) -> (f64, f64) {
         let offset_x: f64 = pos_center_x - x;
         let offset_y: f64 = pos_y - y;
 
-        (offset_x, offset_y)
+        (offset_x - pari.x, offset_y - pari.y)
     }
 }
 
@@ -215,7 +210,15 @@ fn calc_rod_value(rod: &Vec<Disc>) -> u32 {
     }
 }
 
-pub struct App {
+#[derive(Copy, Clone)]
+struct PlayAreaRenderInfo {
+    width: f64,
+    height: f64,
+    x: f64,
+    y: f64,
+}
+
+pub struct PlayArea {
     gl: GlGraphics, // OpenGL drawing backend.
 
     // Elements
@@ -231,23 +234,46 @@ pub struct App {
     mov_ofst_x: f64,
     mov_ofst_y: f64,
     start_rod: usize,
+
+    last_pari: PlayAreaRenderInfo,
 }
 
-impl App {
-    fn render(&mut self, args: &RenderArgs) {
+impl PlayArea {
+    fn render(&mut self, args: &RenderArgs, play_area_render_info: PlayAreaRenderInfo) {
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
-            graphics::clear(COLOR_BACKGROUND, gl);
+            // graphics::clear(COLOR_PLAY_AREA_BACKGROUND, gl);
+
+            self.last_pari = play_area_render_info.clone();
+
+            let window_size = args.window_size;
+
+            graphics::rectangle(
+                COLOR_PLAY_AREA_BACKGROUND,
+                [
+                    play_area_render_info.x,
+                    play_area_render_info.y,
+                    play_area_render_info.width,
+                    play_area_render_info.height,
+                ],
+                c.transform,
+                gl,
+            );
 
             // Render all rods
             for rod in self.rods.iter() {
-                rod.render(c, gl);
+                rod.render(c, gl, &play_area_render_info);
             }
 
             // Render all discs
             for (i_rod, rod) in self.discs.iter().enumerate() {
                 for (i, disc) in rod.iter().enumerate() {
-                    disc.render(gl, args, self.rods[i_rod].center, calc_stacked_y(i as u32));
+                    disc.render(
+                        gl,
+                        args,
+                        self.rods[i_rod].center + play_area_render_info.x,
+                        calc_stacked_y(i as u32) + play_area_render_info.y,
+                    );
                 }
             }
 
@@ -256,6 +282,7 @@ impl App {
                 let (clamped_x, clamped_y) = self.moving_disc.as_ref().unwrap().clamped_pos(
                     self.mouse_pos_x + self.mov_ofst_x,
                     self.mouse_pos_y + self.mov_ofst_y,
+                    &play_area_render_info,
                 );
 
                 self.moving_disc
@@ -277,7 +304,7 @@ impl App {
         if !matches!(self.moving_disc, None) {
             for (i_rod, rod) in self.rods.iter_mut().enumerate() {
                 rod.highlighted = false;
-                if rod.pos_in_dropbox(self.mouse_pos_x, self.mouse_pos_y) {
+                if rod.pos_in_dropbox(self.mouse_pos_x, self.mouse_pos_y, &self.last_pari) {
                     if calc_rod_value(&self.discs[i_rod])
                         >= self.moving_disc.as_mut().unwrap().value
                     {
@@ -294,8 +321,8 @@ impl App {
                     rod[last_disc_i].highlighted = rod[last_disc_i].pos_in(
                         self.mouse_pos_x,
                         self.mouse_pos_y,
-                        self.rods[i_rod].center,
-                        calc_stacked_y(last_disc_i as u32),
+                        self.rods[i_rod].center + self.last_pari.x,
+                        calc_stacked_y(last_disc_i as u32) + self.last_pari.y,
                     )
                 }
             }
@@ -315,18 +342,19 @@ impl App {
                     if last_disc.pos_in(
                         self.mouse_pos_x,
                         self.mouse_pos_y,
-                        self.rods[i_rod].center,
-                        calc_stacked_y(last_disc_i as u32),
+                        self.rods[i_rod].center + self.last_pari.x,
+                        calc_stacked_y(last_disc_i as u32) + self.last_pari.y,
                     ) {
                         (self.mov_ofst_x, self.mov_ofst_y) = last_disc.calc_movement_offset(
                             self.mouse_pos_x,
                             self.mouse_pos_y,
-                            self.rods[i_rod].center,
-                            calc_stacked_y(last_disc_i as u32),
+                            self.rods[i_rod].center + self.last_pari.x,
+                            calc_stacked_y(last_disc_i as u32) + self.last_pari.y,
+                            &self.last_pari,
                         );
 
                         // Remove disc and save to current disc
-                        rod[last_disc_i].highlighted = false;
+                        // rod[last_disc_i].highlighted = false;
                         self.moving_disc = Some(rod.remove(last_disc_i));
                         self.start_rod = i_rod as usize;
                     }
@@ -337,18 +365,20 @@ impl App {
     fn mouse_button_released(&mut self, button: &MouseButton) {
         if *button == MouseButton::Left {
             if !matches!(self.moving_disc, None) {
-                let currently_moving: Disc = std::mem::take(&mut self.moving_disc).unwrap();
+                let mut currently_moving: Disc = std::mem::take(&mut self.moving_disc).unwrap();
 
                 let mut drop: Option<usize> = None;
 
                 for (i_rod, rod) in self.rods.iter_mut().enumerate() {
-                    if rod.pos_in_dropbox(self.mouse_pos_x, self.mouse_pos_y)
+                    if rod.pos_in_dropbox(self.mouse_pos_x, self.mouse_pos_y, &self.last_pari)
                         && calc_rod_value(&self.discs[i_rod]) >= currently_moving.value
                     {
                         drop = Some(i_rod);
                         break;
                     }
                 }
+
+                currently_moving.highlighted = false;
 
                 if matches!(drop, None) {
                     self.discs[self.start_rod].push(currently_moving);
@@ -363,6 +393,48 @@ impl App {
                 }
             }
         }
+    }
+}
+
+fn place_play_area(window_width: f64, window_height: f64) -> PlayAreaRenderInfo {
+    PlayAreaRenderInfo {
+        width: WINDOW_WIDTH as f64,
+        height: WINDOW_HEIGHT as f64,
+        x: window_width / 2.0 - WINDOW_WIDTH as f64 / 2.0,
+        y: window_height / 2.0 - WINDOW_HEIGHT as f64 / 2.0,
+    }
+}
+
+struct App {
+    gl: GlGraphics,
+    play_area: PlayArea,
+}
+
+impl App {
+    fn render(&mut self, args: &RenderArgs) {
+        self.gl.draw(args.viewport(), |c, gl| {
+            // Clear the screen.
+            graphics::clear(COLOR_BACKGROUND, gl);
+
+            self.play_area.render(
+                args,
+                place_play_area(args.window_size[0], args.window_size[1]),
+            );
+        });
+    }
+
+    fn update(&mut self, args: &UpdateArgs) {}
+
+    fn mouse_moved(&mut self, pos: &[f64; 2]) {
+        self.play_area.mouse_moved(pos);
+    }
+
+    fn mouse_button_pressed(&mut self, button: &MouseButton) {
+        self.play_area.mouse_button_pressed(button);
+    }
+
+    fn mouse_button_released(&mut self, button: &MouseButton) {
+        self.play_area.mouse_button_released(button);
     }
 }
 
@@ -421,7 +493,7 @@ fn main() {
     let mut window: Window = WindowSettings::new(WINDOW_TITLE, [WINDOW_WIDTH, WINDOW_HEIGHT])
         .graphics_api(opengl)
         .exit_on_esc(true)
-        .resizable(false)
+        .resizable(true)
         .build()
         .unwrap();
 
@@ -429,8 +501,7 @@ fn main() {
     let discs = init_discs(N_DISCS, N_RODS);
     let rods = init_rods(N_RODS);
 
-    // Create a new game and run it.
-    let mut app = App {
+    let mut play_area = PlayArea {
         gl: GlGraphics::new(opengl),
         discs,
         rods,
@@ -440,7 +511,20 @@ fn main() {
         mouse_pos_x: 0.0,
         mouse_pos_y: 0.0,
         start_rod: 0,
+        last_pari: PlayAreaRenderInfo {
+            width: 0.0,
+            height: 0.0,
+            x: 0.0,
+            y: 0.0,
+        },
     };
+
+    let mut app = App {
+        gl: GlGraphics::new(opengl),
+        play_area,
+    };
+
+    // Create a new game and run it.
 
     let mut events = Events::new(EventSettings::new());
     while let Some(e) = events.next(&mut window) {
@@ -454,17 +538,14 @@ fn main() {
 
         // Mouse button events
         if let Some(Button::Mouse(button)) = e.press_args() {
-            println!("Pressed mouse button '{:?}'", button);
             app.mouse_button_pressed(&button)
         }
         if let Some(Button::Mouse(button)) = e.release_args() {
-            println!("Released mouse button '{:?}'", button);
             app.mouse_button_released(&button)
         }
 
         // Mouse movement events
         e.mouse_cursor(|pos| {
-            // println!("Mouse moved '{} {}'", pos[0], pos[1]);
             app.mouse_moved(&pos);
         });
     }
