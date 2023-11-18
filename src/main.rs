@@ -29,10 +29,10 @@ const ROD_WIDTH: f64 = 20.0;
 const ROD_HEIGHT: f64 = 500.0;
 const ROD_BASE: f64 = WINDOW_HEIGHT as f64 - 100.0;
 const ROD_TOP: f64 = ROD_BASE - ROD_HEIGHT;
-const N_DISCS: u32 = 4;
+const N_DISCS: u32 = 5;
 const N_RODS: u32 = 3;
 
-const COLOR_BACKGROUND: [f32; 4] = [0.8, 0.1, 0.1, 1.0];
+const COLOR_BACKGROUND: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const COLOR_PLAY_AREA_BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
 
 fn clamp_rect_position(
